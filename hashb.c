@@ -8,6 +8,12 @@
 #define SECTOR_SHIFT 9
 #define MULTIPLE (PAGE_SIZE >> SECTOR_SHIFT)
 #define DEFAULT_DISKSIZE (32*1024*1024)
+#define DIST_RANGE	4
+#define R0	0
+#define R1	262144
+#define R2	524288
+#define R3	786432
+#define R4	1048576
 
 static int hashb_major = 0;
 static int max_num_devices = 2;
@@ -15,22 +21,186 @@ static int max_num_devices = 2;
 /* Module params (documentation at end) */
 static unsigned int hashb_num_devices = 0;
 
+struct hashb_stats {
+	atomic_t num_reads;		
+	atomic_t num_writes;	
+	atomic_t chash_dist[DIST_RANGE];
+	atomic_t ihash_dist[DIST_RANGE];
+};
+
 struct hashb{
 	struct request_queue *queue;
 	struct gendisk *disk;
 	int init_done;
 	/* Prevent concurrent execution of device init, reset and R/W request */
 	struct rw_semaphore init_lock;
+	struct hashb_stats stats;
 };
 
 static struct hashb *hashb_devices = NULL;
+
+/*----------hashb_sysfs>----------*/
+static void hashb_stats_init(struct hashb_stats *hashb_stats)
+{	
+	int i = 0;
+	atomic_set(&hashb_stats->num_reads, 0);
+	atomic_set(&hashb_stats->num_writes, 0);
+	
+	for (i = 0; i < DIST_RANGE; ++i) {
+		atomic_set(&hashb_stats->chash_dist[i], 0);
+		atomic_set(&hashb_stats->ihash_dist[i], 0);
+	}
+}
+
+static struct hashb *dev_to_hashb(struct device *dev)
+{
+	int i;
+	struct hashb *hashb = NULL;
+
+	for (i = 0; i < hashb_num_devices; i++) {
+		hashb = &hashb_devices[i];
+		if (disk_to_dev(hashb->disk) == dev)
+			break;
+	}
+
+	return hashb;
+}
+
+static ssize_t num_reads_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.num_reads));
+}
+
+static ssize_t num_writes_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.num_writes));
+}
+
+
+static ssize_t cR1_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.chash_dist[0]));
+}
+
+static ssize_t cR2_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.chash_dist[1]));
+}
+
+static ssize_t cR3_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.chash_dist[2]));
+}
+
+static ssize_t cR4_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.chash_dist[3]));
+}
+
+static ssize_t iR1_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.ihash_dist[0]));
+}
+
+static ssize_t iR2_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.ihash_dist[1]));
+}
+
+static ssize_t iR3_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.ihash_dist[2]));
+}
+
+static ssize_t iR4_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct hashb *hashb = dev_to_hashb(dev);
+
+	return sprintf(buf, "%d\n",
+		atomic_read(&hashb->stats.ihash_dist[3]));
+}
+
+static DEVICE_ATTR(num_reads, S_IRUGO, num_reads_show, NULL);
+static DEVICE_ATTR(num_writes, S_IRUGO, num_writes_show, NULL);
+static DEVICE_ATTR(cR1, S_IRUGO, cR1_show, NULL);
+static DEVICE_ATTR(cR2, S_IRUGO, cR2_show, NULL);
+static DEVICE_ATTR(cR3, S_IRUGO, cR3_show, NULL);
+static DEVICE_ATTR(cR4, S_IRUGO, cR4_show, NULL);
+static DEVICE_ATTR(iR1, S_IRUGO, iR1_show, NULL);
+static DEVICE_ATTR(iR2, S_IRUGO, iR2_show, NULL);
+static DEVICE_ATTR(iR3, S_IRUGO, iR3_show, NULL);
+static DEVICE_ATTR(iR4, S_IRUGO, iR4_show, NULL);
+
+static struct attribute *hashb_disk_attrs[] = {
+	&dev_attr_num_reads.attr,
+	&dev_attr_num_writes.attr,
+	&dev_attr_cR1.attr,
+	&dev_attr_cR2.attr,
+	&dev_attr_cR3.attr,
+	&dev_attr_cR4.attr,
+	&dev_attr_iR1.attr,
+	&dev_attr_iR2.attr,
+	&dev_attr_iR3.attr,
+	&dev_attr_iR4.attr,
+	NULL,
+};
+
+struct attribute_group hashb_disk_attr_group = {
+	.attrs = hashb_disk_attrs,
+};
+/*----------<hashb_sysfs----------*/
 
 static const struct block_device_operations hashb_devops = {
 	.owner = THIS_MODULE
 };
 
-static void hashb_rw(struct bio *bio)
+static void hashb_rw(struct hashb* hashb, struct bio *bio)
 {
+	switch (bio_data_dir(bio)) {
+	case READ:
+		atomic_inc(&hashb->stats.num_reads);
+		break;
+	case WRITE:
+		atomic_inc(&hashb->stats.num_writes);
+		break;
+	}
 }
 /*
  * Handler function for all hashb I/O requests.
@@ -41,7 +211,7 @@ static void hashb_make_request(struct request_queue *queue, struct bio *bio)
 
 	down_read(&hashb->init_lock);
 
-	hashb_rw(bio);
+	hashb_rw(hashb, bio);
 	bio_endio(bio, 0);
 
 	up_read(&hashb->init_lock);
@@ -91,6 +261,7 @@ static int create_device(struct hashb *hashb, int device_id)
 	hashb->disk->fops = &hashb_devops;
 	hashb->disk->queue = hashb->queue;
 	hashb->disk->private_data = hashb;
+	hashb_stats_init(&hashb->stats);
 	snprintf(hashb->disk->disk_name, 16, "hashb%d", device_id);
 
 	set_capacity(hashb->disk, DEFAULT_DISKSIZE * MULTIPLE);
@@ -106,11 +277,22 @@ static int create_device(struct hashb *hashb, int device_id)
 	blk_queue_io_opt(hashb->disk->queue, PAGE_SIZE);
 	blk_queue_max_hw_sectors(hashb->disk->queue, MULTIPLE);
 
-	hashb->init_done = 1;
 	add_disk(hashb->disk);
+
+	ret = sysfs_create_group(&disk_to_dev(hashb->disk)->kobj,
+				&hashb_disk_attr_group);
+	if (ret < 0) {
+		pr_warning("Error creating sysfs group");
+		goto out_free_disk;
+	}
+
+	hashb->init_done = 1;
 
 	return 0;
 
+out_free_disk:
+	del_gendisk(hashb->disk);
+	put_disk(hashb->disk);
 out_free_queue:
 	blk_cleanup_queue(hashb->queue);
 out:
@@ -167,8 +349,7 @@ out:
 	return ret;
 }
 
-void cleanup_module(void)
-{
+void cleanup_module(void) {
 	int i;
 	struct hashb *hashb;
 
