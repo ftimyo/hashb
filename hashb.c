@@ -4,11 +4,21 @@
 #include <linux/bio.h>
 #include <linux/blkdev.h>
 #include <linux/genhd.h>
+#include <crypto/hash.h>
+#include <linux/scatterlist.h>
 
 #define SECTOR_SHIFT 9
+#define SECTORS_PER_PAGE_SHIFT	(PAGE_SHIFT - SECTOR_SHIFT)
+
 #define MULTIPLE (PAGE_SIZE >> SECTOR_SHIFT)
 #define DEFAULT_DISKSIZE (32*1024*1024)
 #define DIST_RANGE	4
+
+#define SMT_INDEX_LENGTH	20	
+#define SMT_SIZE		(1U << SMT_INDEX_LENGTH)
+#define SMT_MASK		(SMT_SIZE - 1) 
+#define SMT_INDEX(h)		(h & SMT_MASK)
+
 #define R0	0
 #define R1	262144
 #define R2	524288
@@ -191,8 +201,50 @@ static const struct block_device_operations hashb_devops = {
 	.owner = THIS_MODULE
 };
 
+
+static void sha1_hash(const void *data, size_t nbytes, u8 *result)
+{
+	struct scatterlist sg;
+	struct crypto_hash *tfm;
+	struct hash_desc desc;
+
+	tfm = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
+
+	if (IS_ERR(tfm)) {
+		printk(KERN_ERR "failed to load transform for sha1: %ld\n",
+		       PTR_ERR(tfm));
+		return;
+	}
+
+	desc.tfm = tfm;
+	desc.flags = 0;
+
+	sg_init_one(&sg, data, nbytes);
+	crypto_hash_digest(&desc, &sg, nbytes, result);
+	crypto_free_hash(tfm);
+}
+
+static void range_stat(u64 index, atomic_t *dist)
+{
+	if (index < R1) {
+		atomic_inc(&dist[0]);
+	} else if (index < R2) {
+		atomic_inc(&dist[1]);
+	} else if (index < R3) {
+		atomic_inc(&dist[2]);
+	} else {
+		atomic_inc(&dist[3]);
+	}
+}
+
 static void hashb_rw(struct hashb* hashb, struct bio *bio)
 {
+	u8 ihash[20];
+	u8 chash[20];
+
+	u64 index = bio->bi_sector >> SECTORS_PER_PAGE_SHIFT;
+	void *data = page_address(bio_page(bio));
+
 	switch (bio_data_dir(bio)) {
 	case READ:
 		atomic_inc(&hashb->stats.num_reads);
@@ -201,6 +253,10 @@ static void hashb_rw(struct hashb* hashb, struct bio *bio)
 		atomic_inc(&hashb->stats.num_writes);
 		break;
 	}
+	sha1_hash(&index, sizeof(u64), ihash);
+	sha1_hash(data, PAGE_SIZE, chash);
+	range_stat(SMT_INDEX(*(u64*)ihash), hashb->stats.ihash_dist);
+	range_stat(SMT_INDEX(*(u64*)chash), hashb->stats.chash_dist);
 }
 /*
  * Handler function for all hashb I/O requests.
