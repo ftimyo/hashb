@@ -202,6 +202,32 @@ static const struct block_device_operations hashb_devops = {
 };
 
 
+u64 trcd_hash (void *val, size_t len, u8 *result)
+{
+	u64 * v64p = val;
+	u64 h64 = 0;
+	u64 tail64 = 0;
+	u8 * v8p, * tail8p = (u8*)& tail64;
+
+	while (len>=8){
+		h64 ^= *v64p;
+		v64p++;
+		len -= 8;
+	};
+
+	if (unlikely(len > 0)) {
+		v8p = (u8*)v64p;
+		for (;len>0;len--){
+			*tail8p = *v8p;
+			tail8p++;
+			v8p++;
+		}
+		h64 ^= tail64;
+	}
+	(*(u64*)result) = h64;
+	return h64;
+}
+
 static void sha1_hash(const void *data, size_t nbytes, u8 *result)
 {
 	struct scatterlist sg;
@@ -251,8 +277,14 @@ static void hashb_rw(struct hashb* hashb, struct bio *bio)
 		break;
 	case WRITE:
 		atomic_inc(&hashb->stats.num_writes);
+#if 1
 		sha1_hash(&index, sizeof(u64), ihash);
 		sha1_hash(data, PAGE_SIZE, chash);
+#else
+		trcd_hash(&index, sizeof(u64), ihash);
+		trcd_hash(data, PAGE_SIZE, chash);
+#endif
+
 		range_stat(SMT_INDEX(*(u64*)ihash), hashb->stats.ihash_dist);
 		range_stat(SMT_INDEX(*(u64*)chash), hashb->stats.chash_dist);
 		break;
