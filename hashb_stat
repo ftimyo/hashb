@@ -1,0 +1,25 @@
+#!/bin/bash
+ddir='/sys/block/hashb0'
+tw=`cat $ddir/num_writes`
+cr1=`cat $ddir/cR1`
+cr2=`cat $ddir/cR2`
+cr3=`cat $ddir/cR3`
+cr4=`cat $ddir/cR4`
+
+ir1=`cat $ddir/iR1`
+ir2=`cat $ddir/iR2`
+ir3=`cat $ddir/iR3`
+ir4=`cat $ddir/iR4`
+
+cr1=`echo $cr1/$tw*100 | bc -l`
+cr2=`echo $cr2/$tw*100 | bc -l`
+cr3=`echo $cr3/$tw*100 | bc -l`
+cr4=`echo $cr4/$tw*100 | bc -l`
+
+ir1=`echo $ir1/$tw*100 | bc -l`
+ir2=`echo $ir2/$tw*100 | bc -l`
+ir3=`echo $ir3/$tw*100 | bc -l`
+ir4=`echo $ir4/$tw*100 | bc -l`
+
+echo "$cr1,$cr2,$cr3,$cr4"
+echo "$ir1,$ir2,$ir3,$ir4"
