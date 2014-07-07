@@ -251,12 +251,12 @@ static void hashb_rw(struct hashb* hashb, struct bio *bio)
 		break;
 	case WRITE:
 		atomic_inc(&hashb->stats.num_writes);
+		sha1_hash(&index, sizeof(u64), ihash);
+		sha1_hash(data, PAGE_SIZE, chash);
+		range_stat(SMT_INDEX(*(u64*)ihash), hashb->stats.ihash_dist);
+		range_stat(SMT_INDEX(*(u64*)chash), hashb->stats.chash_dist);
 		break;
 	}
-	sha1_hash(&index, sizeof(u64), ihash);
-	sha1_hash(data, PAGE_SIZE, chash);
-	range_stat(SMT_INDEX(*(u64*)ihash), hashb->stats.ihash_dist);
-	range_stat(SMT_INDEX(*(u64*)chash), hashb->stats.chash_dist);
 }
 /*
  * Handler function for all hashb I/O requests.
